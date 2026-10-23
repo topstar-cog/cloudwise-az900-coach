@@ -262,15 +262,6 @@ function recordQuestionOutcomes(
     const now = attempt.timestamp || Date.now();
     const existing = learningGaps[misconceptionId];
     if (attempt.correct) {
-      if (existing) {
-        learningGaps[misconceptionId] = {
-          ...existing,
-          status: 'corrected',
-          followUpAttempts: existing.followUpAttempts + 1,
-          successfulCorrections: existing.successfulCorrections + 1,
-          lastFollowUpAt: now,
-        };
-      }
       continue;
     }
     learningGaps[misconceptionId] = {

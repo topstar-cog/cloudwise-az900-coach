@@ -56,7 +56,7 @@ function chooseSet(pool: Question[], mode: QuizMode, alreadySeen = new Set<strin
       ? Math.min(20, pool.length)
       : mode === 'domain'
       ? Math.min(10, pool.length)
-      : Math.min(2, pool.length);
+      : Math.min(1, pool.length);
   const unseen = pool.filter((question) => !alreadySeen.has(question.id));
   const candidates = unseen.length >= targetSize
     ? unseen
