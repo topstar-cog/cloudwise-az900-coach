@@ -136,6 +136,7 @@ export function QuizView({
     Object.fromEntries(quizQuestions.map((question) => [question.id, shuffled(question.options.map((_, index) => index))])),
   );
   const [secondsRemaining, setSecondsRemaining] = useState(MOCK_EXAM_SECONDS);
+  const [noFreshQuestions, setNoFreshQuestions] = useState(false);
   const submitRef = useRef<() => void>(() => {});
   submitRef.current = submit;
 
@@ -210,12 +211,19 @@ export function QuizView({
 
   function retry() {
     const previouslySeen = new Set([...persistedSeen, ...usedQuestionIds.current]);
+    const unseenPool = retryPool.filter((question) => !previouslySeen.has(question.id));
+    if (unseenPool.length === 0) {
+      setNoFreshQuestions(true);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
     let next = chooseSet(retryPool, mode, previouslySeen);
     for (let tries = 0; tries < 25 && usedSets.current.has(setKey(next)); tries += 1) {
       next = chooseSet(retryPool, mode, previouslySeen);
     }
     usedSets.current.add(setKey(next));
     next.forEach((question) => usedQuestionIds.current.add(question.id));
+    setNoFreshQuestions(false);
     setQuizQuestions(next);
     setOptionOrders(Object.fromEntries(next.map((question) => [question.id, shuffled(question.options.map((_, index) => index))])));
     setAnswers(Object.fromEntries(next.map((qq) => [qq.id, { selected: [] as number[] }])));
@@ -237,6 +245,7 @@ export function QuizView({
         onRecordFollowUpResult={onRecordFollowUpResult}
         isMockExam={mode === 'mock-exam'}
         timeUsedSeconds={MOCK_EXAM_SECONDS - secondsRemaining}
+        noFreshQuestions={noFreshQuestions}
       />
     );
   }
@@ -388,6 +397,7 @@ function ResultsView({
   onRecordFollowUpResult,
   isMockExam,
   timeUsedSeconds,
+  noFreshQuestions,
 }: {
   questions: Question[];
   answers: Record<string, AnswerState>;
@@ -398,6 +408,7 @@ function ResultsView({
   onRecordFollowUpResult: (misconceptionId: string, questionId: string, correct: boolean) => void;
   isMockExam: boolean;
   timeUsedSeconds: number;
+  noFreshQuestions: boolean;
 }) {
   const results = questions.map((q) => {
     const sel = answers[q.id].selected;
@@ -530,14 +541,9 @@ function ResultsView({
       {results.some((result) => result.correct) && (
         <section className="mt-6">
           <h2 className="mb-3 text-lg font-bold text-slate-900">What you got right</h2>
-          <div className="space-y-3">
-            {results.filter((result) => result.correct).map(({ q }) => (
-              <div key={q.id} className="card p-4">
-                <p className="text-sm font-semibold text-slate-900">{q.prompt}</p>
-                <p className="mt-2 rounded-lg bg-teal-50 p-3 text-sm leading-relaxed text-teal-900">
-                  <span className="font-semibold">Why that is correct: </span>{q.explanation}
-                </p>
-              </div>
+          <div className="space-y-4">
+            {results.filter((result) => result.correct).map(({ q, selected }) => (
+              <CorrectQuestionCard key={q.id} question={q} selected={selected} />
             ))}
           </div>
         </section>
@@ -545,9 +551,25 @@ function ResultsView({
 
       {/* Actions */}
       <div className="mt-6 flex flex-wrap gap-2">
-        <button className="btn-primary" onClick={onRetry}>
-          <RotateCcw size={15} /> {retryLabel}
-        </button>
+        {noFreshQuestions ? (
+          <div className="w-full rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <p className="text-sm font-semibold text-amber-900">
+              You've practised every question in this topic.
+            </p>
+            <p className="mt-1 text-xs text-amber-800">
+              Try a broader domain quiz or pick another topic from the curriculum to keep practising.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button className="btn-secondary border-amber-300 bg-white text-amber-800 hover:bg-amber-100" onClick={onBack}>
+                Back to dashboard
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button className="btn-primary" onClick={onRetry}>
+            <RotateCcw size={15} /> {retryLabel}
+          </button>
+        )}
         <button className="btn-secondary" onClick={onBack}>
           Back to dashboard
         </button>
@@ -612,23 +634,25 @@ function MissedQuestionCard({
           <span className="font-semibold">Why the correct answer is correct: </span>
           {question.explanation}
         </div>
-        {question.distractorAnalysis
-          .filter((d) => selected.includes(d.index) || !question.correct.includes(d.index))
-          .map((d) => (
+        {question.distractorAnalysis.map((d) => {
+          const wasSelected = selected.includes(d.index);
+          const label = wasSelected
+            ? `Why your choice (${String.fromCharCode(65 + d.index)}) is wrong`
+            : `Why ${String.fromCharCode(65 + d.index)} doesn't fit this scenario`;
+          return (
             <div
               key={d.index}
               className={`rounded-lg p-3 text-xs leading-relaxed ${
-                selected.includes(d.index)
+                wasSelected
                   ? 'bg-rose-50 text-rose-900'
                   : 'bg-slate-50 text-slate-600'
               }`}
             >
-              <span className="font-semibold">
-                Why {String.fromCharCode(65 + d.index)} is wrong:{' '}
-              </span>
+              <span className="font-semibold">{label}: </span>
               {d.reason}
             </div>
-          ))}
+          );
+        })}
       </div>
 
       {question.remedialLesson && question.followUpQuestion && (
@@ -640,6 +664,63 @@ function MissedQuestionCard({
           />
         </div>
       )}
+    </div>
+  );
+}
+
+function CorrectQuestionCard({
+  question,
+  selected,
+}: {
+  question: Question;
+  selected: number[];
+}) {
+  return (
+    <div className="card p-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="chip bg-teal-50 text-teal-700">
+          <CheckCircle2 size={12} /> Correct
+        </span>
+        <span className={`chip ${difficultyChip(question.difficulty)}`}>{question.difficulty}</span>
+      </div>
+      <p className="mt-3 text-sm font-semibold leading-relaxed text-slate-900">{question.prompt}</p>
+
+      <div className="mt-3 space-y-2">
+        {question.options.map((opt, i) => {
+          const isCorrect = question.correct.includes(i);
+          const wasSelected = selected.includes(i);
+          let cls = 'border-slate-100 bg-white text-slate-500';
+          if (isCorrect) cls = 'border-teal-300 bg-teal-50 text-teal-900';
+          else if (wasSelected) cls = 'border-rose-300 bg-rose-50 text-rose-900';
+          return (
+            <div key={i} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${cls}`}>
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-current text-[11px] font-semibold">
+                {String.fromCharCode(65 + i)}
+              </span>
+              <span className="flex-1">{opt}</span>
+              {isCorrect && <CheckCircle2 size={15} className="text-teal-600" />}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 space-y-3">
+        <div className="rounded-lg bg-teal-50 p-3 text-xs leading-relaxed text-teal-900">
+          <span className="font-semibold">Why your answer is correct: </span>
+          {question.explanation}
+        </div>
+        {question.distractorAnalysis.map((d) => (
+          <div
+            key={d.index}
+            className="rounded-lg bg-slate-50 p-3 text-xs leading-relaxed text-slate-600"
+          >
+            <span className="font-semibold">
+              Why {String.fromCharCode(65 + d.index)} doesn't fit this scenario:{' '}
+            </span>
+            {d.reason}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
